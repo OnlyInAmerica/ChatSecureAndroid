@@ -1856,12 +1856,12 @@ public class ChatView extends LinearLayout {
         }
 
         @TargetApi(11)
-		public int getType(int columnIndex) {
+        public int getType(int columnIndex) {
             return mInnerCursor.getType(columnIndex);
         }
 
         @TargetApi(19)
-		@Override
+        @Override
         public Uri getNotificationUri() {
             return mInnerCursor.getNotificationUri();
         }
