@@ -1855,7 +1855,7 @@ public class ChatView extends LinearLayout {
             return t2 - t1;
         }
 
-        @TargetApi(Build.VERSION_CODES.HONEYCOMB)
+        @TargetApi(11)
 		public int getType(int columnIndex) {
             return mInnerCursor.getType(columnIndex);
         }
