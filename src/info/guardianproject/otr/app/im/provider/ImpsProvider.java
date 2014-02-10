@@ -1120,18 +1120,21 @@ public class ImpsProvider extends ContentProvider {
         {
             SQLiteDatabase db = dbHelper.getWritableDatabase();
             
-            if (db.isOpen())
+            synchronized (db)
             {
-                db.beginTransaction();
-                try {
-                    result = updateInternal(url, values, selection, selectionArgs);
-                    db.setTransactionSuccessful();
-                } finally {
-                    db.endTransaction();
-                }
-                if (result > 0) {
-                    getContext().getContentResolver()
-                            .notifyChange(url, null /* observer */, false /* sync */);
+                if (db.isOpen())
+                {
+                    db.beginTransaction();
+                    try {
+                        result = updateInternal(url, values, selection, selectionArgs);
+                        db.setTransactionSuccessful();
+                    } finally {
+                        db.endTransaction();
+                    }
+                    if (result > 0) {
+                        getContext().getContentResolver()
+                                .notifyChange(url, null /* observer */, false /* sync */);
+                    }
                 }
             }
         }
@@ -1173,17 +1176,30 @@ public class ImpsProvider extends ContentProvider {
         
         if (getDBHelper() != null)
         {
-            SQLiteDatabase db = getDBHelper().getWritableDatabase();
-            db.beginTransaction();
-            try {
-                result = insertInternal(url, values);
-                db.setTransactionSuccessful();
-            } finally {
-                db.endTransaction();
+            try
+            {
+                SQLiteDatabase db = getDBHelper().getWritableDatabase();
+                synchronized (db)
+                {
+                    if (db.isOpen())
+                    {
+                        db.beginTransaction();
+                        try {
+                            result = insertInternal(url, values);
+                            db.setTransactionSuccessful();
+                        } finally {
+                            db.endTransaction();
+                        }
+                        if (result != null) {
+                            getContext().getContentResolver()
+                                    .notifyChange(url, null /* observer */, false /* sync */);
+                        }
+                    }
+                }
             }
-            if (result != null) {
-                getContext().getContentResolver()
-                        .notifyChange(url, null /* observer */, false /* sync */);
+            catch (IllegalStateException ise)
+            {
+                log("database closed when insert attempted: " + url.toString());
             }
         }
         return result;

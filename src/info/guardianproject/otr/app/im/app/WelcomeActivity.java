@@ -17,6 +17,7 @@
 package info.guardianproject.otr.app.im.app;
 
 import info.guardianproject.cacheword.CacheWordActivityHandler;
+import info.guardianproject.cacheword.CacheWordService;
 import info.guardianproject.cacheword.ICacheWordSubscriber;
 import info.guardianproject.cacheword.SQLCipherOpenHelper;
 import info.guardianproject.otr.app.im.R;
@@ -25,6 +26,7 @@ import info.guardianproject.otr.app.im.provider.Imps;
 import net.hockeyapp.android.UpdateManager;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.ProgressDialog;
 import android.content.ContentUris;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -33,6 +35,7 @@ import android.content.res.Configuration;
 import android.database.Cursor;
 import android.net.Uri;
 import android.net.Uri.Builder;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.os.Message;
 import android.preference.PreferenceManager;
@@ -88,7 +91,6 @@ public class WelcomeActivity extends ThemeableActivity implements ICacheWordSubs
         mApp = (ImApp)getApplication();
         mHandler = new MyHandler(this);
 
-        
         mSignInHelper = new SignInHelper(this);
        
         mPrefs = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
@@ -98,24 +100,22 @@ public class WelcomeActivity extends ThemeableActivity implements ICacheWordSubs
       
         mDoSignIn = getIntent().getBooleanExtra("doSignIn", true);
         mDoLock = getIntent().getBooleanExtra("doLock", false);
-        
-        
-        mApp.maybeInit(this);
 
 
         if (!mDoLock)
         {
+            mApp.maybeInit(this);
             mApp.checkForCrashes(this);            
-            
         }
         
-        if (!mDoLock && openEncryptedStores(null, false))
-            // DB already open, or unencrypted
-            // openEncryptedStores has finished()
-            return;
-        else
-            connectToCacheWord ();
-     
+        if (ImApp.mUsingCacheword)
+            connectToCacheWord();
+        else 
+        {
+           
+           if (!openEncryptedStores(null, false))
+               connectToCacheWord(); //first time setup
+        }
     }
 
     private void connectToCacheWord ()
@@ -535,7 +535,7 @@ public class WelcomeActivity extends ThemeableActivity implements ICacheWordSubs
         Log.d(ImApp.LOG_TAG,"cache word uninit");
         
         if (mDoLock) {
-            Log.d(ImApp.LOG_TAG, "cacheword lock requested but already uninitialized");
+            completeShutdown();
         } else {
             showLockScreen();
         }
@@ -566,27 +566,91 @@ public class WelcomeActivity extends ThemeableActivity implements ICacheWordSubs
     @Override
     public void onCacheWordOpened() {
         if (mDoLock) {
-            Log.d(ImApp.LOG_TAG, "cacheword lock");
-            mCacheWord.manuallyLock();
-            mCacheWord.disconnect();
-            finish(); 
+            completeShutdown();
             return;
         }
-       Log.d(ImApp.LOG_TAG,"cache word opened");
-       
+        
        byte[] encryptionKey = mCacheWord.getEncryptionKey();
        openEncryptedStores(encryptionKey, true);
 
        int defaultTimeout = Integer.parseInt(mPrefs.getString("pref_cacheword_timeout",ImApp.DEFAULT_TIMEOUT_CACHEWORD));       
 
        mCacheWord.setTimeoutMinutes(defaultTimeout);
+       
     }
 
+    private void completeShutdown ()
+    {
+           new AsyncTask<String, Void, String>() {
+            
+            private ProgressDialog dialog;
+            
+            
+            @Override
+            protected void onPreExecute() {
+                if (mApp.getActiveConnections().size() > 0)
+                {
+                    dialog = new ProgressDialog(WelcomeActivity.this);
+                    dialog.setCancelable(true);
+                    dialog.setMessage(getString(R.string.signing_out_wait));
+                    dialog.show();
+                }
+            }
+            
+            @Override
+            protected String doInBackground(String... params) {
+              
+
+                while (mApp.getActiveConnections().size() > 0)
+                {
+                    try{Thread.sleep(200);}catch (Exception e){}
+                }
+                
+                //wait another half second just in case
+                try{Thread.sleep(500);}catch (Exception e){}
+              
+                return "";
+              }
+
+            @Override
+            protected void onPostExecute(String result) {
+                super.onPostExecute(result);
+
+                if (dialog != null)
+                    dialog.hide();
+
+                mApp.forceStopImService();
+                
+                Imps.clearPassphrase(mApp);
+                
+                if (mCacheWord != null)
+                {
+                    mCacheWord.manuallyLock();
+                }
+                
+
+                Intent cacheWordIntent = CacheWordService
+                        .getBlankServiceIntent(getApplicationContext());
+                WelcomeActivity.this.stopService(cacheWordIntent);
+                
+                WelcomeActivity.this.finish();
+            }
+        }.execute();
+        
+      
+        
+    }
+    
     private boolean openEncryptedStores(byte[] key, boolean allowCreate) {
         String pkey = (key != null) ? SQLCipherOpenHelper.encodeRawKey(key) : "";
         
         if (cursorUnlocked(pkey, allowCreate)) {
-            doOnResume();
+            
+            if (mDoLock)
+                completeShutdown();
+            else
+                doOnResume();
+        
             return true;
         } else {
             return false;

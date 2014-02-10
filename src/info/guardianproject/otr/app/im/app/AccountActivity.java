@@ -318,7 +318,7 @@ public class AccountActivity extends Activity {
         mBtnSignIn = (Button) findViewById(R.id.btnSignIn);
         
         if (mIsNewAccount)
-            mBtnSignIn.setText("Create Account");
+            mBtnSignIn.setText(R.string.btn_create_account);
         
         mBtnAdvanced = (Button) findViewById(R.id.btnAdvanced);
         mBtnDelete = (Button) findViewById(R.id.btnDelete);
@@ -403,6 +403,10 @@ public class AccountActivity extends Activity {
                         mEditUserAccount.requestFocus();
                         return;
                     }
+                    
+                    ImPluginHelper helper = ImPluginHelper.getInstance(AccountActivity.this);
+                    mProviderId = helper.createAdditionalProvider(helper.getProviderNames().get(0)); //xmpp FIXME
+
                 }
                 else
                 {
@@ -411,26 +415,31 @@ public class AccountActivity extends Activity {
                         mEditUserAccount.requestFocus();
                         return;
                     }
+                    else
+                    {
+                        settingsForDomain(mDomain,mPort);//apply final settings
+                    }
                 }
 
-                final long accountId = ImApp.insertOrUpdateAccount(cr, mProviderId, mUserName,
+     
+                mAccountId = ImApp.insertOrUpdateAccount(cr, mProviderId, mUserName,
                         rememberPass ? pass : null);
-
-                mAccountUri = ContentUris.withAppendedId(Imps.Account.CONTENT_URI, accountId);
+                
+                mAccountUri = ContentUris.withAppendedId(Imps.Account.CONTENT_URI, mAccountId);
                 
                 //if remember pass is true, set the "keep signed in" property to true
                 if (mIsNewAccount)
                 {
                     if (pass.equals(passConf))
                     {
-                        createNewAccount(mUserName, pass, accountId);
+                        createNewAccount(mUserName, pass, mAccountId);
                         setAccountKeepSignedIn(rememberPass);
-                        mSignInHelper.activateAccount(mProviderId, accountId);
-                        setResult(RESULT_OK);
+                        mSignInHelper.activateAccount(mProviderId, mAccountId);
+                       // setResult(RESULT_OK);
                         //mSignInHelper.signIn(pass, mProviderId, accountId, isActive);
                         //isSignedIn = true;
                         //updateWidgetState();
-                        finish();
+                       // finish();
                     }
                     else
                     {
@@ -450,11 +459,11 @@ public class AccountActivity extends Activity {
                             confirmTermsOfUse(brandingRes, new DialogInterface.OnClickListener() {
                                 @Override
                                 public void onClick(DialogInterface dialog, int which) {
-                                    mSignInHelper.signIn(pass, mProviderId, accountId, isActive);
+                                    mSignInHelper.signIn(pass, mProviderId, mAccountId, isActive);
                                 }
                             });
                         } else {
-                            mSignInHelper.signIn(pass, mProviderId, accountId, isActive);
+                            mSignInHelper.signIn(pass, mProviderId, mAccountId, isActive);
                         }
                       
                         isSignedIn = true;
@@ -543,28 +552,26 @@ public class AccountActivity extends Activity {
         checkUserChanged();
     
         OrbotHelper orbotHelper = new OrbotHelper(this);
+        
         Imps.ProviderSettings.QueryMap settings = new Imps.ProviderSettings.QueryMap(
-                getContentResolver(), mProviderId, false /* don't keep updated */, null /* no handler */);
+               getContentResolver(), mProviderId, false /* don't keep updated */, null /* no handler */);
 
-        try {
-            if (useTor && (!orbotHelper.isOrbotInstalled()))
-            {
-                //Toast.makeText(this, "Orbot app is not installed. Please install from Google Play or from https://guardianproject.info/releases", Toast.LENGTH_LONG).show();
-                
-                orbotHelper.promptToInstall(this);
-                
-                mUseTor.setChecked(false);
-                settings.setUseTor(false);
-            }
-            else
-            {
-                settings.setUseTor(useTor);
-            }
+        if (useTor && (!orbotHelper.isOrbotInstalled()))
+        {
+            //Toast.makeText(this, "Orbot app is not installed. Please install from Google Play or from https://guardianproject.info/releases", Toast.LENGTH_LONG).show();
             
-            settingsForDomain(settings.getDomain(),settings.getPort());
-        } finally {
-            settings.close();
+            orbotHelper.promptToInstall(this);
+            
+            mUseTor.setChecked(false);
+            settings.setUseTor(false);
         }
+        else
+        {
+            settings.setUseTor(useTor);
+        }
+        
+        settingsForDomain(settings.getDomain(),settings.getPort(),settings);
+        settings.close();
     }
 /*
     private void getOTRKeyInfo() {
@@ -664,12 +671,11 @@ public class AccountActivity extends Activity {
 
         Imps.ProviderSettings.QueryMap settings = new Imps.ProviderSettings.QueryMap(
                 getContentResolver(), mProviderId, false /* don't keep updated */, null /* no handler */);
-
-        try {
-            settingsForDomain(domain, port, settings);
-        } finally {
-            settings.close();
-        }
+    
+        settingsForDomain(domain, port, settings);
+   
+        settings.close();
+   
     }
 
     private void settingsForDomain(String domain, int port, Imps.ProviderSettings.QueryMap settings) {
@@ -842,9 +848,9 @@ public class AccountActivity extends Activity {
             Log.e(ImApp.LOG_TAG, "signout: caught ", ex);
         } finally {
 
-            Toast.makeText(this,
-                    getString(R.string.signed_out_prompt, this.mEditUserAccount.getText()),
-                    Toast.LENGTH_SHORT).show();
+        //    Toast.makeText(this,
+        //            getString(R.string.signed_out_prompt, this.mEditUserAccount.getText()),
+        //            Toast.LENGTH_SHORT).show();
             isSignedIn = false;
 
             mBtnSignIn.setText(getString(R.string.sign_in));
@@ -889,13 +895,6 @@ public class AccountActivity extends Activity {
         mEditPass.setFocusable(goodUsername);
         mEditPass.setFocusableInTouchMode(goodUsername);
 
-        // enable keep sign in only when remember password is checked.
-        boolean rememberPass = mRememberPass.isChecked();
-        if (rememberPass && !hasNameAndPassword) {
-            mRememberPass.setChecked(false);
-            rememberPass = false; 
-    
-        }
         mRememberPass.setEnabled(hasNameAndPassword);
         mRememberPass.setFocusable(hasNameAndPassword);
 

@@ -20,7 +20,6 @@ import info.guardianproject.otr.OtrAndroidKeyManagerImpl;
 import info.guardianproject.otr.OtrDebugLogger;
 import info.guardianproject.otr.app.im.IImConnection;
 import info.guardianproject.otr.app.im.R;
-import info.guardianproject.otr.app.im.engine.ImConnection;
 import info.guardianproject.otr.app.im.plugin.xmpp.auth.GTalkOAuth2;
 import info.guardianproject.otr.app.im.provider.Imps;
 import info.guardianproject.otr.app.im.service.ImServiceConstants;
@@ -96,7 +95,7 @@ public class AccountListActivity extends SherlockFragmentActivity implements Vie
     static final int ACCOUNT_CONNECTION_STATUS = 10;
 
     private static final int ACCOUNT_LOADER_ID = 1000;
-
+    
     @Override
     protected void onCreate(Bundle icicle) {
         super.onCreate(icicle);
@@ -130,6 +129,7 @@ public class AccountListActivity extends SherlockFragmentActivity implements Vie
         mHandler.unregisterForBroadcastEvents();
         
         super.onPause();
+        
     }
 
     @Override
@@ -238,21 +238,12 @@ public class AccountListActivity extends SherlockFragmentActivity implements Vie
         for (IImConnection conn : mApp.getActiveConnections())
         {
                try {
-                conn.logout();
+                conn.logout();                
             } catch (RemoteException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
             }
         }
-        
-        mHandler.postDelayed(new Runnable()
-        {
-            public void run ()
-            {
-                mApp.forceStopImService();
-                
-            }
-        }, 2000l);
         
         Intent intent = new Intent(getApplicationContext(), WelcomeActivity.class);
         // Request lock
@@ -311,7 +302,7 @@ public class AccountListActivity extends SherlockFragmentActivity implements Vie
             return true;
         case R.id.menu_settings:
             Intent sintent = new Intent(this, SettingActivity.class);
-            startActivity(sintent);
+            startActivityForResult(sintent,0);
             return true;
         case R.id.menu_import_keys:
             importKeyStore();

@@ -17,6 +17,8 @@
 
 package info.guardianproject.otr.app.im.engine;
 
+import info.guardianproject.otr.app.im.ISubscriptionListener;
+
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -52,7 +54,7 @@ public abstract class ContactListManager {
     protected Vector<ContactList> mContactLists;
 
     protected CopyOnWriteArrayList<ContactListListener> mContactListListeners;
-    protected SubscriptionRequestListener mSubscriptionRequestListener;
+    protected ISubscriptionListener mSubscriptionRequestListener;
 
     protected Vector<Contact> mBlockedList;
 
@@ -134,11 +136,11 @@ public abstract class ContactListManager {
      * 
      * @param listener the ContactInvitationListener.
      */
-    public synchronized void setSubscriptionRequestListener(SubscriptionRequestListener listener) {
+    public synchronized void setSubscriptionRequestListener(ISubscriptionListener listener) {
         mSubscriptionRequestListener = listener;
     }
 
-    public synchronized SubscriptionRequestListener getSubscriptionRequestListener() {
+    public synchronized ISubscriptionListener getSubscriptionRequestListener() {
         return mSubscriptionRequestListener;
     }
 
@@ -180,8 +182,8 @@ public abstract class ContactListManager {
      * @param address the address of the temporary contact.
      * @return the created temporary contact
      */
-    public abstract Contact createTemporaryContact(String address);
-
+    public abstract Contact[] createTemporaryContacts(String[] addresses);
+    
     /**
      * Tell whether the manager contains the specified contact
      * 
@@ -376,7 +378,7 @@ public abstract class ContactListManager {
         doBlockContactAsync(address, false);
     }
 
-    protected void addContactToListAsync(String address, ContactList list) throws ImException {
+    protected void addContactToListAsync(Contact address, ContactList list) throws ImException {
         checkState();
 
         doAddContactToListAsync(address, list);
@@ -391,7 +393,34 @@ public abstract class ContactListManager {
 
         doRemoveContactFromListAsync(contact, list);
     }
+    
+    /**
+     * @param address
+     * @param name
+     * @return
+     * @throws ImException 
+     */
+    public void setContactName(String address, String name) throws ImException {
+        checkState();
 
+        doSetContactName(address,name);
+        updateCache(address,name); // used to refresh the display
+    }
+    
+    protected abstract void doSetContactName(String address, String name) throws ImException;
+    
+    protected void updateCache(String address, String name) {
+        // each contact list holds a cache
+        for (ContactList list : mContactLists) {
+            Contact contact = list.getContact(normalizeAddress(address));
+            if (contact != null) {
+                // refresh the cache
+                contact.setName(name);
+                list.insertToCache(contact);
+            }
+        }
+    }
+    
     /**
      * Gets a unmodifiable list of blocked contacts.
      * 
@@ -460,9 +489,9 @@ public abstract class ContactListManager {
      */
     public abstract void loadContactListsAsync();
 
-    public abstract void approveSubscriptionRequest(String contact);
+    public abstract void approveSubscriptionRequest(Contact contact);
 
-    public abstract void declineSubscriptionRequest(String contact);
+    public abstract void declineSubscriptionRequest(Contact contact);
 
     protected abstract ImConnection getConnection();
 
@@ -626,10 +655,11 @@ public abstract class ContactListManager {
         }
     }
 
-    protected abstract void doAddContactToListAsync(String address, ContactList list)
+    protected abstract void doAddContactToListAsync(Contact contact, ContactList list)
             throws ImException;
 
     protected abstract void doRemoveContactFromListAsync(Contact contact, ContactList list);
 
     protected abstract void setListNameAsync(String name, ContactList list);
+
 }

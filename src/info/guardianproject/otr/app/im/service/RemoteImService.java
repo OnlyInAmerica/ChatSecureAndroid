@@ -279,21 +279,7 @@ public class RemoteImService extends Service implements OtrEngineListener, ImSer
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        return super.onStartCommand(intent, flags, startId);
-    }
-    
-    
-
-    @Override
-    public void onLowMemory() {
-        super.onLowMemory();
-    }
-
-
-    @Override
-    public void onStart(Intent intent, int startId) {
-        super.onStart(intent, startId);
-
+        
         if (intent != null && HeartbeatService.HEARTBEAT_ACTION.equals(intent.getAction())) {
             Log.d(TAG, "HEARTBEAT");
             try {
@@ -302,7 +288,7 @@ public class RemoteImService extends Service implements OtrEngineListener, ImSer
             } finally {
                 mWakeLock.release();
             }
-            return;
+            return START_STICKY;
         }
         
         if (intent != null && HeartbeatService.NETWORK_STATE_ACTION.equals(intent.getAction())) {
@@ -311,7 +297,7 @@ public class RemoteImService extends Service implements OtrEngineListener, ImSer
             State networkState = State.values()[intent.getIntExtra(HeartbeatService.NETWORK_STATE_EXTRA, 0)];
             // TODO(miron) wakelock?
             networkStateChanged(networkInfo, networkState);
-            return;
+            return START_STICKY;
         }
 
 
@@ -330,8 +316,17 @@ public class RemoteImService extends Service implements OtrEngineListener, ImSer
             mNeedCheckAutoLogin = false;
             autoLogin();
         }
+        
+        return START_STICKY;
     }
     
+    
+
+    @Override
+    public void onLowMemory() {
+        super.onLowMemory();
+    }
+
     
     private void clearConnectionStatii() {
         ContentResolver cr = getContentResolver();
@@ -448,14 +443,12 @@ public class RemoteImService extends Service implements OtrEngineListener, ImSer
             conn.logout();
         }
         
-        if (getGlobalSettings().getUseForegroundPriority())
+        if (mUseForeground)
             stopForeground(true);
 
         if (mGlobalSettings != null)
             mGlobalSettings.close();
      
-        Imps.clearPassphrase(this);
-        
     }
 
     @Override
@@ -502,11 +495,15 @@ public class RemoteImService extends Service implements OtrEngineListener, ImSer
         return results[0];
     }
 
+    private boolean mUseForeground = false;
+    
     IImConnection do_createConnection(long providerId, long accountId) {
         
         if (mConnections.size() == 0)
         {
-            if (getGlobalSettings().getUseForegroundPriority())
+            mUseForeground = getGlobalSettings().getUseForegroundPriority();
+            
+            if (mUseForeground)
                 startForegroundCompat();
         }
         
@@ -707,6 +704,11 @@ public class RemoteImService extends Service implements OtrEngineListener, ImSer
             mKillProcessOnStop = killProcessOnStop;
         }
         
+        @Override
+        public void enableDebugLogging (boolean debug)
+        {
+            Debug.DEBUG_ENABLED = debug;
+        }
     };
     
     private boolean mKillProcessOnStop = false;

@@ -21,10 +21,13 @@ import info.guardianproject.otr.app.im.IChatSession;
 import info.guardianproject.otr.app.im.IChatSessionManager;
 import info.guardianproject.otr.app.im.IContactListManager;
 import info.guardianproject.otr.app.im.IImConnection;
+import info.guardianproject.otr.app.im.ISubscriptionListener;
 import info.guardianproject.otr.app.im.R;
 import info.guardianproject.otr.app.im.app.ContactListFilterView.ContactListListener;
 import info.guardianproject.otr.app.im.app.adapter.ChatListenerAdapter;
+import info.guardianproject.otr.app.im.engine.Contact;
 import info.guardianproject.otr.app.im.engine.ImConnection;
+import info.guardianproject.otr.app.im.plugin.xmpp.XmppAddress;
 import info.guardianproject.otr.app.im.provider.Imps;
 import info.guardianproject.otr.app.im.provider.Imps.ProviderSettings.QueryMap;
 import info.guardianproject.otr.app.im.service.ImServiceConstants;
@@ -35,6 +38,7 @@ import info.guardianproject.util.SystemServices.FileInfo;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
@@ -129,7 +133,7 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
     
     private SimpleAlertHandler mHandler;
     
-    private long mAccountId = -1;
+    private long mLastAccountId = -1;
     private long mLastProviderId = -1;
     
     private MessageContextMenuHandler mMessageContextMenuHandler;
@@ -160,15 +164,18 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         super.onCreate(icicle);
 
         requestWindowFeature(Window.FEATURE_INDETERMINATE_PROGRESS);
-
+        setSupportProgressBarIndeterminateVisibility(false);
+        
         mApp = (ImApp)getApplication();
         mApp.maybeInit(this);
     
      //  requestWindowFeature(Window.FEATURE_NO_TITLE);        
         setContentView(R.layout.chat_pager);
         
-        this.getSherlock().getActionBar().setTitle("");
-        
+        ActionBar actionBar = getSherlock().getActionBar();
+        actionBar.setTitle("");
+        actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_LIST);
+
         ThemeableActivity.setBackgroundImage(this);
 
         mHandler = new MyHandler(this);
@@ -238,12 +245,11 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
                         
                     }
                     
-                    
-                    refreshLastConnection();
-                    
-
                     getSherlock().getActionBar().setNavigationMode(ActionBar.NAVIGATION_MODE_LIST);
                     mChatPagerTitleStrip.setBackgroundResource(R.color.background_dark);
+                    
+                   // refreshLastConnection();
+                    setSpinnerState ();
 
                 }
             }
@@ -289,7 +295,7 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
 
         @Override
         public void onLoadFinished(Loader<Cursor> loader, Cursor newCursor) {
-            Log.d("YYY", "swap cursor");
+           // Log.d("YYY", "swap cursor");
             mChatPagerAdapter.swapCursor(newCursor);
             resolveIntent();
             if (mRequestedChatId >= 0) {
@@ -353,6 +359,7 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         super.onNewIntent(intent);
         
         setIntent(intent);
+        resolveIntent();
     }
 
     @Override
@@ -501,11 +508,11 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
     
     private void showInviteContactDialog ()
     {
-        if (mLastProviderId != -1 && mAccountId != -1)
+        if (mLastProviderId != -1 && mLastAccountId != -1)
         {
             Intent i = new Intent(this, AddContactActivity.class);
             i.putExtra(ImServiceConstants.EXTRA_INTENT_PROVIDER_ID, mLastProviderId);
-            i.putExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID, mAccountId);
+            i.putExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID, mLastAccountId);
          //   i.putExtra(ImServiceConstants.EXTRA_INTENT_LIST_NAME,
            //         mContactListView.getSelectedContactList());
             startActivity(i);
@@ -552,9 +559,9 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         
         if (requireOpenDashboardOnStart(intent)) {
             long providerId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_PROVIDER_ID, -1L);
-            mAccountId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID,
+            mLastAccountId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID,
                     -1L);
-            if (providerId == -1L || mAccountId == -1L) {
+            if (providerId == -1L || mLastAccountId == -1L) {
                 finish();
             } else {
              //   mChatSwitcher.open();
@@ -565,14 +572,13 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         if (ImServiceConstants.ACTION_MANAGE_SUBSCRIPTION.equals(intent.getAction())) {
             
             long providerId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_PROVIDER_ID, -1);
-            mAccountId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID,
+            mLastAccountId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID,
                     -1L);
             String from = intent.getStringExtra(ImServiceConstants.EXTRA_INTENT_FROM_ADDRESS);
             
             if ((providerId == -1) || (from == null)) {
                 finish();
             } else {
-                //chatView.bindSubscription(providerId, from);
                 
                 showSubscriptionDialog (providerId, from);
                 
@@ -593,15 +599,15 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
                          
                     if (host != null && path != null)
                     {
-                        List<IImConnection> listConns = ((ImApp)getApplication()).getActiveConnections();
+                        Collection<IImConnection> connActive = mApp.getActiveConnections();
                         
-                        if (!listConns.isEmpty())
-                        {
-                            
-                             startGroupChat(path, host, listConns.get(0));
-                            
-                             setResult(RESULT_OK);
+                        for (IImConnection conn : connActive)
+                        {                            
+                            startGroupChat (path, host, conn);                        
+                            setResult(RESULT_OK);
+                            break;
                         }
+                        
                     }
                     
                     
@@ -661,11 +667,13 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
             else if (intent.hasExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID))
             {
                 //set the current account id
-                mAccountId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID,-1L);
+                mLastAccountId = intent.getLongExtra(ImServiceConstants.EXTRA_INTENT_ACCOUNT_ID,-1L);
                 
                 //move the pager back to the first page
                 if (mChatPager != null)
                     mChatPager.setCurrentItem(0);
+                
+                setupSpinners();
                                
             }
             else
@@ -707,7 +715,7 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
     
     private Menu mMenu;
     private AccountAdapter mAdapter;
-    protected Long[] mAccountIds;
+    protected Long[][] mAccountIds;
     private long mRequestedChatId;
     
     public void updateEncryptionMenuState ()
@@ -1351,10 +1359,11 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
                 mDataValid = true;
                 // notify the observers about the new cursor
                 refreshChatViews();
-                notifyDataSetChanged();
+               
             } else {
                 mDataValid = false;
             }
+            notifyDataSetChanged();
             return oldCursor;
         }
 
@@ -1396,7 +1405,7 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
                 int position = PagerAdapter.POSITION_NONE;
                 
                 // TODO: cache positions so we don't scan the cursor every time
-                if (mCursor.getCount() > 0)
+                if (mCursor != null && mCursor.getCount() > 0)
                 {
                     mCursor.moveToFirst();
                     
@@ -1435,7 +1444,7 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         @Override
         public CharSequence getPageTitle(int position) {
            
-            if (position == 0)
+            if (position == 0 || mCursor == null)
             {
                 return getString(R.string.contacts);
             }
@@ -1531,19 +1540,39 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
                 
                 if (newCursor != null && newCursor.getCount() > 0)
                 {
-                    mAccountIds = new Long[newCursor.getCount()];
+                    mAccountIds = new Long[newCursor.getCount()][2];
                     newCursor.moveToFirst();
-                    int activeAccountIdColumn = newCursor.getColumnIndexOrThrow(Imps.Provider.ACTIVE_ACCOUNT_ID);
-    
+                    int activeAccountIdColumn = 4;
+                    int activeProviderIdColumn = 0;
+                    
                     for (int i = 0; i < mAccountIds.length; i++)
                     {
-                        mAccountIds[i] = newCursor.getLong(activeAccountIdColumn);              
+                        mAccountIds[i][0] = newCursor.getLong(activeAccountIdColumn);              
+                        mAccountIds[i][1] = newCursor.getLong(activeProviderIdColumn);
                         newCursor.moveToNext();
                         
                     }
+
+                    newCursor.moveToFirst();
+                    mAdapter.swapCursor(newCursor);
+    
+                    ActionBar ab = getSherlock().getActionBar();
+    
+                    ab.setListNavigationCallbacks(mAdapter, new OnNavigationListener () {
+    
+                       @Override
+                       public boolean onNavigationItemSelected(int itemPosition, long itemId) {
+                           initConnection(mAccountIds[itemPosition][0],mAccountIds[itemPosition][1]);
+                           return true;
+                       }
+                        
+                    });
+                    
+                    setSpinnerState ();
+                
                 }
 
-                mAdapter.swapCursor(newCursor);
+
             }
 
             @Override
@@ -1554,24 +1583,14 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         });
 
         mAdapter = new AccountAdapter(this, new ProviderListItemFactory(), R.layout.account_view_actionbar);
+        /*
         mAdapter.setListener(new AccountAdapter.Listener() {
             @Override
             public void onPopulate() {
                 setSpinnerState();
             }
-        });
-        ActionBar ab = getSherlock().getActionBar();
-        ab.setNavigationMode(ActionBar.NAVIGATION_MODE_LIST);
+        });*/
 
-        ab.setListNavigationCallbacks(mAdapter, new OnNavigationListener () {
-
-           @Override
-           public boolean onNavigationItemSelected(int itemPosition, long itemId) {
-               initAccount(mAccountIds[itemPosition]);
-               return true;
-           }
-            
-        });
         
     }
 
@@ -1583,16 +1602,16 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         
         if (mAccountIds.length == 1) //only one account, hide the spinner
         {
-            initAccount(mAccountIds[0]);
+            initConnection(mAccountIds[0][0],mAccountIds[0][1]);
         }
-        else if (mAccountId != -1) //multiple accounts, so select a spinner based on user input
+        else if (mLastAccountId != -1) //multiple accounts, so select a spinner based on user input
         {
 
             int selIdx = 0;
             
-            for (long accountId : mAccountIds)
+            for (int i = 0; i < mAccountIds.length; i++)
             {
-                if (accountId == getAccountId())
+                if (mAccountIds[i][0] == getLastAccountId())
                 {
                     ActionBar actionBar = getSherlock().getActionBar();
                     if (actionBar.getNavigationMode() == ActionBar.NAVIGATION_MODE_LIST)
@@ -1606,46 +1625,20 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
             
         }
        
-    }
-    
-    public void initAccount (long accountId)
-    {
-
-        if (accountId == -1)
-            return;
-        
-        ContentResolver cr = getContentResolver();
-        Cursor c = cr.query(ContentUris.withAppendedId(Imps.Account.CONTENT_URI, accountId), null,
-                null, null, null);
-      
-        if (c == null) {
-           // finish();
-            return;
-        }
-        if (!c.moveToFirst()) {
-            c.close();
-          //  finish();
-            return;
-        }
-
-        long providerId = c.getLong(c.getColumnIndexOrThrow(Imps.Account.PROVIDER));
-        setLastProviderId(providerId);
-        // FIXME doesn't mAccountId need to be set here?
-        
-        initConnection (accountId, providerId);
-        
-        c.close();
-    }
+    }   
     
     public void refreshLastConnection ()
     {
-        if (mAccountId != -1 && mLastProviderId != -1)
-            initConnection(mAccountId, mLastProviderId);
+        if (mLastAccountId != -1 && mLastProviderId != -1)
+            initConnection(mLastAccountId, mLastProviderId);
         
     }
     
     public void initConnection (long accountId, long providerId)
     {
+        mLastAccountId = accountId;
+        mLastProviderId = providerId;
+        
         IImConnection conn = ((ImApp)getApplication()).getConnection(providerId);
       
         if (conn == null)
@@ -1662,6 +1655,13 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         {
             mContactList.setConnection(conn);
 
+            try {
+                conn.getContactListManager().registerSubscriptionListener(mSubscriptionListener);
+            } catch (RemoteException e1) {
+                Log.e(ImApp.LOG_TAG,"error registering listener",e1);
+
+            }
+            
             if (mContactList.mPresenceView != null)
             {
                 try {
@@ -2241,22 +2241,32 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
     
     void showSubscriptionDialog (final long subProviderId, final String subFrom)
     {
-        new AlertDialog.Builder(this)            
-        .setTitle(getString(R.string.subscriptions))
-        .setMessage(getString(R.string.subscription_prompt,subFrom))
-        .setPositiveButton(R.string.approve_subscription, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dialog, int whichButton) {
-
-                approveSubscription(subProviderId, subFrom);
-            }
-        })
-        .setNegativeButton(R.string.decline_subscription, new DialogInterface.OnClickListener() {
-            public void onClick(DialogInterface dialog, int whichButton) {
-
-                declineSubscription(subProviderId, subFrom);
-            }
-        })
-        .create().show();
+        if (! ((Activity) this).isFinishing()) {
+        
+            mHandler.postDelayed(new Runnable()
+            {
+                
+                public void run ()
+                {
+                    new AlertDialog.Builder(NewChatActivity.this)            
+                    .setTitle(getString(R.string.subscriptions))
+                    .setMessage(getString(R.string.subscription_prompt,subFrom))
+                    .setPositiveButton(R.string.approve_subscription, new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int whichButton) {
+            
+                            approveSubscription(subProviderId, subFrom);
+                        }
+                    })
+                    .setNegativeButton(R.string.decline_subscription, new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int whichButton) {
+            
+                            declineSubscription(subProviderId, subFrom);
+                        }
+                    })
+                    .create().show();
+                }
+            },500);
+        }
     }
 
     void approveSubscription(long providerId, String userName) {
@@ -2264,7 +2274,8 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
 
         try {
             IContactListManager manager = conn.getContactListManager();
-            manager.approveSubscription(userName);
+            
+            manager.approveSubscription(new Contact(new XmppAddress(userName),userName));
         } catch (RemoteException e) {
 
             mHandler.showServiceErrorAlert(e.getLocalizedMessage());
@@ -2279,7 +2290,7 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         {
             try {
                 IContactListManager manager = conn.getContactListManager();
-                manager.declineSubscription(userName);
+                manager.declineSubscription(new Contact(new XmppAddress(userName),userName));
             } catch (RemoteException e) {
                 mHandler.showServiceErrorAlert(e.getLocalizedMessage());
                 LogCleaner.error(ImApp.LOG_TAG, "decline sub error",e);
@@ -2288,16 +2299,12 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
     }
     
 
-    long getAccountId() {
-        return mAccountId;
+    long getLastAccountId() {
+        return mLastAccountId;
     }
     
     long getLastProviderId() {
         return mLastProviderId;
-    }
-    
-    void setAccountId(long mAccountId) {
-        this.mAccountId = mAccountId;
     }
     
     void setLastProviderId(long mLastProviderId) {
@@ -2327,15 +2334,6 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
             }
         }
         
-        mHandler.postDelayed(new Runnable()
-        {
-            public void run ()
-            {
-                mApp.stopImServiceIfInactive();
-                
-            }
-        }, 2000l);
-        
         Intent intent = new Intent(getApplicationContext(), WelcomeActivity.class);
         // Request lock
         intent.putExtra("doLock", true);
@@ -2344,5 +2342,24 @@ public class NewChatActivity extends SherlockFragmentActivity implements View.On
         startActivity(intent);
         finish();
    }
+
+
+    private final ISubscriptionListener.Stub mSubscriptionListener = new ISubscriptionListener.Stub() {
+
+        public void onSubScriptionRequest(Contact from, long providerId, long accountId) {
+            showSubscriptionDialog (providerId, from.getAddress().getAddress());
+
+        }
+
+        public void onSubscriptionApproved(Contact contact, long providerId, long accountId) {
+
+        }
+
+        public void onSubscriptionDeclined(Contact contact, long providerId, long accountId) {
+
+        }
+
+    };
+    
 
 }

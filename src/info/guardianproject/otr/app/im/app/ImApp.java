@@ -37,6 +37,7 @@ import info.guardianproject.util.Debug;
 import info.guardianproject.util.PRNGFixes;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -115,6 +116,8 @@ public class ImApp extends Application {
     HashMap<Long, ProviderDef> mProviders;
 
     Broadcaster mBroadcaster;
+    
+    public static boolean mUsingCacheword = false;
 
     /**
      * A queue of messages that are waiting to be sent when service is
@@ -277,7 +280,15 @@ public class ImApp extends Application {
         Configuration config = getResources().getConfiguration();
         getResources().updateConfiguration(config, getResources().getDisplayMetrics());
      
-        
+        if (mImService != null)
+        {
+            boolean debugOn = settings.getBoolean("prefDebug", false);
+            try {
+                mImService.enableDebugLogging(debugOn);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
     }
     
     public boolean checkLocale ()
@@ -356,6 +367,7 @@ public class ImApp extends Application {
             }
         }
 
+        Imps.clearPassphrase(this);
         super.onTerminate();
     }
 
@@ -394,10 +406,8 @@ public class ImApp extends Application {
     
     public synchronized void stopImServiceIfInactive() {
         boolean hasActiveConnection = true;
-        synchronized (mConnections) {
-            hasActiveConnection = !mConnections.isEmpty();
-        }
-
+        hasActiveConnection = !mConnections.isEmpty();
+        
         if (!hasActiveConnection) {
             if (Log.isLoggable(LOG_TAG, Log.DEBUG))
                 log("stop ImService because there's no active connections");
@@ -413,8 +423,6 @@ public class ImApp extends Application {
         }
     }
     
-    
-    //private boolean mKillServerOnStart = false;
     
     public synchronized void forceStopImService() 
     {
@@ -531,9 +539,6 @@ public class ImApp extends Application {
     }
 
     private void loadImProviderSettings() {
-        if (mProviders != null) {
-            return;
-        }
 
         mProviders = new HashMap<Long, ProviderDef>();
         ContentResolver cr = getContentResolver();
@@ -700,9 +705,6 @@ public class ImApp extends Application {
     public IImConnection getConnection(long providerId) {
         synchronized (mConnections) {
             
-            if (mConnections.size() == 0)
-                fetchActiveConnections();
-            
             IImConnection im = mConnections.get(providerId);
             
             if (im != null)
@@ -739,16 +741,9 @@ public class ImApp extends Application {
         }
     }
 
-    public List<IImConnection> getActiveConnections() {
-        synchronized (mConnections) {
+    public Collection<IImConnection> getActiveConnections() {
 
-            if (mConnections.size() == 0)
-                fetchActiveConnections();
-            
-            ArrayList<IImConnection> result = new ArrayList<IImConnection>();
-            result.addAll(mConnections.values());
-            return result;
-        }
+        return mConnections.values();
     }
 
     public void callWhenServiceConnected(Handler target, Runnable callback) {
@@ -862,7 +857,7 @@ public class ImApp extends Application {
         {
             try {
                 // register the listener before fetch so that we won't miss any connection.
-                mImService.addConnectionCreatedListener(mConnCreationListener);
+                mImService.addConnectionCreatedListener(mConnCreationListener);                
                 synchronized (mConnections) {
                     
                     for (IBinder binder : (List<IBinder>) mImService.getActiveConnections()) {
@@ -905,6 +900,9 @@ public class ImApp extends Application {
             }
 
             try {
+
+               // fetchActiveConnections();
+                
                 int what = -1;
                 long providerId = conn.getProviderId();
                 switch (state) {
@@ -919,20 +917,16 @@ public class ImApp extends Application {
                 case ImConnection.LOGGING_OUT:
                     // NOTE: if this logic is changed, the logic in ImConnectionAdapter.ConnectionAdapterListener must be changed to match
                     what = EVENT_CONNECTION_LOGGING_OUT;
-                    // MIRON - remove only if disconnected!
-                    //                    synchronized (mConnections) {
-                    //                        mConnections.remove(providerId);
-                    //                    }
+
                     break;
 
                 case ImConnection.DISCONNECTED:
                     // NOTE: if this logic is changed, the logic in ImConnectionAdapter.ConnectionAdapterListener must be changed to match
-                    what = EVENT_CONNECTION_DISCONNECTED;
-                    synchronized (mConnections) {
-                        mConnections.remove(providerId);
-                    }
+                    what = EVENT_CONNECTION_DISCONNECTED;                    
+                    mConnections.remove(providerId);                    
                     // stop the service if there isn't an active connection anymore.
-                  //  stopImServiceIfInactive();
+                    //stopImServiceIfInactive();
+                    
                     break;
 
                 case ImConnection.SUSPENDED:
